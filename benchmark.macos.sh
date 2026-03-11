@@ -38,12 +38,15 @@ calc() { echo "scale=4; $1" | bc -l; }
 
 for P in 1 2 4 8
 do
-    TP=$(mpirun -np $P $BINARY)
-    IDEAL_T=$(calc "$T1 / $P")
-    AMDAHL_S=$(calc "1 / ($SEQ_FRACTION + (1 - $SEQ_FRACTION) / $P)")
-    EXP_S=$(calc "$T1 / $TP")
-    # Analytical: Amdahl with a LogP-style penalty for rank synchronization
-    ANALYTICAL_S=$(calc "$AMDAHL_S * (1 - (0.015 * $P))")
+    RAW_OUT=$(mpirun -np $P $BINARY)
+    TP=$(echo "$RAW_OUT" | grep -oE '[0-9]+\.[0-9]+')
+    
+    if [ "$P" -eq 1 ]; then T1=$TP; fi
+
+    IDEAL_T=$(echo "scale=4; $T1 / $P" | bc -l)
+    AMDAHL_S=$(echo "scale=4; 1 / ($SEQ_FRACTION + (1 - $SEQ_FRACTION) / $P)" | bc -l)
+    EXP_S=$(echo "scale=4; $T1 / $TP" | bc -l)
+    ANALYTICAL_S=$(echo "scale=4; $AMDAHL_S * (1 - (0.015 * $P))" | bc -l)
 
     printf "| %-5s | %-13s | %-10s | %-14s | %-14s | %-12s |\n" \
            "$P" "$TP" "$IDEAL_T" "$AMDAHL_S" "$ANALYTICAL_S" "$EXP_S"
