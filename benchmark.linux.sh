@@ -30,32 +30,46 @@ fi
 # Helper function for math
 calc() { echo "scale=4; $1" | bc -l; }
 
+# Helper function to extract ONLY the decimal/number from a string
+extract_num() {
+    echo "$1" | grep -oE '[0-9]+\.[0-9]+|[0-9]+' | head -n 1
+}
+
 # --- 3. Benchmarking Execution ---
 echo "---------------------------------------------------------------------------------------"
 echo "| Cores | Exp. Time (s) | Ideal Time | Amdahl Speedup | Analytical Spd | Exp. Speedup |"
 echo "---------------------------------------------------------------------------------------"
 
-# 1. Get Sequential Baseline
-# Added --use-hwthread-cpus and --oversubscribe for safety
-# Use 'grep' or 'awk' to ensure we ONLY grab the numeric part of the output
-T1=$(mpirun --allow-run-as-root --use-hwthread-cpus -np 1 $BINARY | grep -oE '^[0-9.]+' | tail -n 1)
+# 1. Get Sequential Baseline (1 thread) 
+# Using --use-hwthread-cpus to prevent MPI slot errors on logical cores
+T1_RAW=$(mpirun --allow-run-as-root --use-hwthread-cpus -np 1 $BINARY | tail -n 1)
+T1=$(extract_num "$T1_RAW")
+
+# Check if T1 was captured correctly
+if [ -z "$T1" ]; then
+    echo "Error: Could not capture execution time for P=1. Check binary output."
+    exit 1
+fi
 
 for P in 1 2 4 8
 do
-    # Run with hwthread support to allow 8 cores
-    TP=$(mpirun --allow-run-as-root --use-hwthread-cpus -np $P $BINARY | grep -oE '^[0-9.]+' | tail -n 1)
+    # Run and grab the numeric time
+    TP_RAW=$(mpirun --allow-run-as-root --use-hwthread-cpus -np $P $BINARY | tail -n 1)
+    TP=$(extract_num "$TP_RAW")
     
-    # Check if TP is empty to prevent bc errors
     if [ -z "$TP" ]; then
-        TP="0.00"
-        EXP_S="N/A"
-    else
-        # Mathematical Models
-        IDEAL_T=$(calc "$T1 / $P")
-        AMDAHL_S=$(calc "1 / ($SEQ_FRACTION + (1 - $SEQ_FRACTION) / $P)")
-        EXP_S=$(calc "$T1 / $TP")
-        ANALYTICAL_S=$(calc "$AMDAHL_S * (1 - (0.015 * $P))")
+        # Skip calculation if TP is empty
+        printf "| %-5s | %-13s | %-10s | %-14s | %-14s | %-12s |\n" "$P" "FAILED" "-" "-" "-" "-"
+        continue
     fi
+
+    # Mathematical Models
+    IDEAL_T=$(calc "$T1 / $P")
+    AMDAHL_S=$(calc "1 / ($SEQ_FRACTION + (1 - $SEQ_FRACTION) / $P)")
+    EXP_S=$(calc "$T1 / $TP")
+    
+    # Analytical: Amdahl minus a simplified communication/scaling penalty
+    ANALYTICAL_S=$(calc "$AMDAHL_S * (1 - (0.015 * $P))")
 
     printf "| %-5s | %-13s | %-10s | %-14s | %-14s | %-12s |\n" \
            "$P" "$TP" "$IDEAL_T" "$AMDAHL_S" "$ANALYTICAL_S" "$EXP_S"
