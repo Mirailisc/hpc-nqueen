@@ -28,7 +28,7 @@ if [ $? -ne 0 ]; then
 fi
 
 # Helper function for math
-calc() { echo "scale=4; $1" | bc -l; }
+calc() { echo "scale=8; $1" | bc -l; }
 
 # Helper function to extract ONLY the decimal/number from a string
 extract_num() {
