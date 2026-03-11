@@ -35,24 +35,27 @@ echo "--------------------------------------------------------------------------
 echo "| Cores | Exp. Time (s) | Ideal Time | Amdahl Speedup | Analytical Spd | Exp. Speedup |"
 echo "---------------------------------------------------------------------------------------"
 
-# 1. Get Sequential Baseline (1 thread) 
-# We use tail -n 1 to capture only the last line (the raw time)
-T1_RAW=$(mpirun --allow-run-as-root -np 1 $BINARY)
-T1=$(echo "$T1_RAW" | tail -n 1)
+# 1. Get Sequential Baseline
+# Added --use-hwthread-cpus and --oversubscribe for safety
+# Use 'grep' or 'awk' to ensure we ONLY grab the numeric part of the output
+T1=$(mpirun --allow-run-as-root --use-hwthread-cpus -np 1 $BINARY | grep -oE '^[0-9.]+' | tail -n 1)
 
 for P in 1 2 4 8
 do
-    # Run and grab ONLY the last line (the numeric time)
-    TP_RAW=$(mpirun --allow-run-as-root -np $P $BINARY)
-    TP=$(echo "$TP_RAW" | tail -n 1)
+    # Run with hwthread support to allow 8 cores
+    TP=$(mpirun --allow-run-as-root --use-hwthread-cpus -np $P $BINARY | grep -oE '^[0-9.]+' | tail -n 1)
     
-    # Mathematical Models
-    IDEAL_T=$(calc "$T1 / $P")
-    AMDAHL_S=$(calc "1 / ($SEQ_FRACTION + (1 - $SEQ_FRACTION) / $P)")
-    EXP_S=$(calc "$T1 / $TP")
-    
-    # Analytical: Amdahl minus a simplified communication penalty
-    ANALYTICAL_S=$(calc "$AMDAHL_S * (1 - (0.015 * $P))")
+    # Check if TP is empty to prevent bc errors
+    if [ -z "$TP" ]; then
+        TP="0.00"
+        EXP_S="N/A"
+    else
+        # Mathematical Models
+        IDEAL_T=$(calc "$T1 / $P")
+        AMDAHL_S=$(calc "1 / ($SEQ_FRACTION + (1 - $SEQ_FRACTION) / $P)")
+        EXP_S=$(calc "$T1 / $TP")
+        ANALYTICAL_S=$(calc "$AMDAHL_S * (1 - (0.015 * $P))")
+    fi
 
     printf "| %-5s | %-13s | %-10s | %-14s | %-14s | %-12s |\n" \
            "$P" "$TP" "$IDEAL_T" "$AMDAHL_S" "$ANALYTICAL_S" "$EXP_S"
